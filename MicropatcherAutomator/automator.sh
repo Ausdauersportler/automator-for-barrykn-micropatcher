@@ -24,11 +24,13 @@ echo "5" > /tmp/automator_int.txt
 sleep 3
 Microlocation=$( echo "$DIR/big-sur-micropatcher-main" )
 echo "10" > /tmp/automator_int.txt
+
 colonins=$(cat /tmp/automator_app.txt)
 installer=$(echo "$colonins" | tr : / | cut -c 7- | sed 's/.$//')
 installdir=${installer%.*}
 installnodir=$( echo "$installdir" | perl -p -e 's/^.*?Install/Install/' )
-installapp=$( echo $installnodir.app )
+# installapp=$( echo $installnodir.app )
+installapp=$(cat /tmp/automator_app.txt)
 
 #lttstore.com
 
@@ -36,7 +38,8 @@ echo 'Creating Bootable Installer. DO NOT CLOSE.'
 echo 'Creating Bootable Installer (See Verbose Output for Progress)...' > /tmp/automator_progress.txt
 echo "20" > /tmp/automator_int.txt
 
-"/Applications/$installapp/Contents/Resources/createinstallmedia" --volume /Volumes/"$USB_VOLUME" --nointeraction
+# "/Applications/$installapp/Contents/Resources/createinstallmedia" --volume /Volumes/"$USB_VOLUME" --nointeraction
+"$installapp/Contents/Resources/createinstallmedia" --volume /Volumes/"$USB_VOLUME" --nointeraction
 
     DISK_IDENTIFIER=$(df /Volumes/"$installnodir" | tail -1 | sed -e 's@ .*@@' | sed 's/.\{2\}$//')
     diskutil unmount force "$DISK_IDENTIFIER"
@@ -57,11 +60,23 @@ echo "40" > /tmp/automator_int.txt
 
 sh "$Microlocation/micropatcher.sh"
 
-echo 'Running install-setvars.sh'
+# echo 'Running install-setvars.sh'
 echo 'Setting Boot Arguments...' > /tmp/automator_progress.txt
 echo "50" > /tmp/automator_int.txt
 
-sudo "$Microlocation/install-setvars.sh"
+MODEL=$(sysctl -n hw.model)
+case $MODEL in
+        # OTA or khronokernel
+        iMac11,[1-3] | iMac12,[1-2] | MacBookPro6,?)
+        echo 'Running install-opencore.sh'
+        sudo "$Microlocation/install-opencore.sh"
+        ;;
+        # all other cases please adjust the same clause in postautomator.sh
+        *)
+        echo 'Running install-setvars.sh'
+        sudo "$Microlocation/install-setvars.sh"
+        ;;
+esac
 
 echo "Patching Installer BaseSystem..."
 echo 'Patching Installer BaseSystem...' > /tmp/automator_progress.txt
