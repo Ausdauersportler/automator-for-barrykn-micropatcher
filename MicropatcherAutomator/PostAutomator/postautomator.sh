@@ -4,6 +4,9 @@
 #
 #
 #  Created by Nathan Taylor on 11/26/20.
+#  Edited by Ausdauersportler on 01/21/21
+#  added compability with micropatcher dev-v0.5.4 and later
+#
 #Drives
 VOLUME=$1
 echo $VOLUME
@@ -15,106 +18,42 @@ ModelIdentifier=$(echo $Model)
 ReadModel=$(sysctl -n hw.model)
 echo $ReadModelr running $OSVER detected!
 INSTALLER=$(dirname "$0")
+# does not work in recovery mode, dirname: command not found
+# chroot to "/Volumes/$VOLUME" will work, this is the complete Bit Sur installation and so one will find the dirname command there
 if [ -d "/Volumes/Image Volume" ]; then
     echo '[Out] Recovery mode detected!'
     INSTALLER=/Volumes/Image\ Volume
 fi
 echo "$INSTALLER"
 
-#
-#thank you Ben for introducing me to this!
+# only case no included in the patch-kext.sh
 case $MODEL in
-        MacBook[4-7],?|Macmini[34],1|MacBookAir[23],[12]|MacBookPro[457],[0-9]|iMac[0-9],[0-9]|iMac10,1)
-        NoAccel2010="yes"
-esac
-
-case $MODEL in
-        MacPro3,[1-3])
-        MacPro31="yes"
-        
-esac
-
-case $MODEL in
-        Macmini5,[12]|MacBookAir4,[12]|MacBookPro8,[0-9]|iMac12,[12])
-        NoAccel2011="yes"
-esac
-
-case $MODEL in
-        iMac11,[1-3])
-        NoAccel2011Imac="yes"
-esac
-
-case $MODEL in
-        Macmini6,[12]|MacBookAir5,[12]|MacBookPro9,[12]|MacBookPro10,[12]|iMac13,[12])
-        Accel2012="yes"
-    
-esac
-
-case $MODEL in
-        MacPro[45],1)
-        Accel2012="yes"
+#        MacPro3,[1-3])
+#        PATCHMODE=--2010
+#        ;;
+        iMac11,[1-3] | iMac12,[1-2])
+#        PATCHMODE=--ns
+        OPENCORE=YES
+        ;;
+        MacBookPro6,?)
+        OPENCORE=YES
+        ;;
 esac
 
 #the actual patching process
 
-if [[ $MacPro31 = yes ]]; then
-    echo "[Out] If you have the stock GPU, please downgrade to an older OS."
-    echo "Assuming you have a Metal compatible GPU, you will have acceleration. If you have the original GPU, your really should upgrade."
-    sleep 5
-    "$INSTALLER/patch-kexts.sh"  --2010 "/Volumes/$VOLUME"
-    echo "[Out] Finished Patching! You may now restart..."
+echo "[Out] If you have a non metal GPU, please downgrade to an older OS."
+echo "Assuming you have a Metal compatible GPU, you will have acceleration."
+sleep 5
+"$INSTALLER/patch-kexts.sh" $PATCHMODE "/Volumes/$VOLUME"
+
+if [ "x$OPENCORE" = "xYES" ]
+then
+    echo "[Out] Finished Patching! Starting configuration of opencore..."
+    "$INSTALLER"/config-opencore.sh --volume /Volumes/"$VOLUME" "$INSTALLER"
+    echo "[Out] Finished configuration of opencore! You may now restart..."
     exit
-fi
-
-if [[ $MacPro == yes ]]; then
-    echo "[Out] If you have the stock GPU, please downgrade to an older OS."
-    echo "Assuming you have a Metal compatible GPU, you will have acceleration. If you have the original GPU, your really should upgrade."
-    sleep 5
-    "$INSTALLER/patch-kexts.sh"  --2012 "/Volumes/$VOLUME"
-    echo "[Out] Finished Patching! You may now restart..."    exit
-fi
-
-if [[ $NoAccel2010 == yes ]]; then
-    echo "[Out] You will not have acceleration, please check verbose output for more info."
-    echo "This machine will not have graphics acceleration, and will therefore be nearly unusable."
-    echo "Please cancel this patcher and downgrade to Catalina or older. This  will continue in 30 seconds if you do not cancel."
-    
-    sleep 30
-
-    "$INSTALLER/patch-kexts.sh"  --2010 "/Volumes/$VOLUME"
-    echo "[Out] Finished Patching! You may now restart..."
-    exit
-fi
-
-
-if [[ $NoAccel2011 == yes ]]; then
-    echo "[Out] You will not have acceleration, please check verbose output for more info."
-    echo "This machine will not have graphics acceleration, and will therefore be nearly unusable."
-    echo "Please cancel this patcher and downgrade to Catalina or older. This  will continue in 30 seconds if you do not cancel."
-        
-        sleep 30
-
-        "$INSTALLER/patch-kexts.sh" --2011 "/Volumes/$VOLUME"
-
-    echo "[Out] Finished Patching! You may now restart..."
-    exit
-fi
-
-if [[ $NoAccel2011Imac == yes ]]; then
-    echo "[Out] You will not have acceleration, please check verbose output for more info."
-    echo "This machine will not have graphics acceleration, and will therefore be nearly unusable."
-    echo "Please cancel this patcher and downgrade to Catalina or older. This  will continue in 30 seconds if you do not cancel."
-        
-        sleep 30
-
-        "$INSTALLER"/patch-kexts.sh  --IMAC11 "/Volumes/$VOLUME"
-    echo "[Out] Finished Patching! You may now restart..."
-    exit
-fi
-
-if [[ $Accel2012 = yes ]]; then
-    echo "[Out] Patchable Mac Detected!"
-    "$INSTALLER/patch-kexts.sh" --2012 "/Volumes/$VOLUME"
+else
     echo "[Out] Finished Patching! You may now restart..."
     exit
 fi
