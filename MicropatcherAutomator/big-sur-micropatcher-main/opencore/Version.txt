@@ -1,0 +1,1 @@
+OpenCore based on version 0.6.6 (0.6.6 includes now DRM fix for Big Sur)

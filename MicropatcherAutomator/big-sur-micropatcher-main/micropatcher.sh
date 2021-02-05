@@ -1,6 +1,6 @@
 #!/bin/bash
-VERSIONNUM=0.5.1
-VERSION="BarryKN Big Sur Micropatcher v$VERSIONNUM"
+VERSIONNUM=dev-v0.5.4
+VERSION="BarryKN/Ausdauersportler Big Sur Micropatcher v$VERSIONNUM"
 
 ### begin function definitions ###
 
@@ -192,8 +192,11 @@ cp -f payloads/*.sh "$VOLUME"
 echo "Adding Hax dylibs..."
 cp -f payloads/ASentientBot-Hax/BarryKN-fork/Hax*.dylib "$VOLUME"
 
-echo 'Adding kexts and other binaries...'
-cp -rf payloads/kexts payloads/bin "$VOLUME"
+echo 'Adding kexts, frameworks, plist, and other binaries...'
+cp -rf payloads/kexts payloads/PrivateFrameworks payloads/Preferences payloads/bin "$VOLUME"
+
+echo 'Adding opencore and scripts...'
+cp -rf opencore install-opencore.sh config-opencore.sh "$VOLUME"
 
 # Let's play it safe and ensure the shell scripts, dylibs, etc. are executable.
 chmod -R u+x "$VOLUME"/*.sh "$VOLUME"/Hax*.dylib "$VOLUME"/bin

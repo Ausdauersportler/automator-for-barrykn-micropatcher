@@ -13,6 +13,14 @@ errorCheck() {
     fi
 }
 
+# Perform unzip with error checking. (exzip = extract zip)
+# I considered playing capitalization tricks with "unzip" but figured
+# that might be more confusing than just using a different name.
+exzip() {
+    unzip -q "$1"
+    errorCheck unzip
+}
+
 # In the current directory, check for kexts which have been renamed from
 # *.kext to *.kext.original, then remove the new versions and rename the
 # old versions back into place.
@@ -107,10 +115,40 @@ do
         echo "Using mojave-hybrid WiFi patch to override default."
         INSTALL_WIFI="mojave-hybrid"
         ;;
-    --useOC)
-        echo "Assuming usage of iMac 2011 with OpenCore (K610, K1100M, K2100M, AMD Polaris"
-        echo "GPU)."
-        IMACUSE_OC=YES
+    --whitelist)
+        echo "Experimental: Whitelist entry for Continuity and HandOff"
+        INSTALL_WHITELIST="YES"
+        ;;
+    --agc)
+        echo "Experimental: Patch AppleGraphicsControl.kext to avoid black screen (NVIDIA GPU only)"
+        INSTALL_MYAGC="YES"
+        DISABLE_LIBRARY_VALIDATION="YES"
+      ;;
+    --saveboot)
+        echo "Experimental: Enable save boot for Metal enabled Macs 2009-2013"
+        ENABLE_SAVE_BOOT="YES"
+        ;;
+    --ns)
+        echo "Experimental: Using @jackluke patched CoreBrightness.framework to enable Night Shift"
+        INSTALL_NIGHTSHIFT="YES"
+        DISABLE_LIBRARY_VALIDATION="YES"
+        ;;
+    --gva)
+        echo "Experimental: Using @jackluke patched AppleGVA.framework to enable iGPU support on Sandy Bridge systems"
+        INSTALL_APPLEGVA="YES"
+        DISABLE_LIBRARY_VALIDATION="YES"
+        ;;
+    --model=iMac12)
+        echo "Experimental: selected model iMac12,x"
+        MODEL="iMac12,1"
+        ;;
+    --model=iMac11)
+        echo "Experimental: selected model iMac11,x"
+        MODEL="iMac11,1"
+        ;;
+    --nikey22)
+        echo "Deprecated: run without OC on iMac12,x"
+        INSTALL_NIKEY22="YES"
         ;;
     --force)
         FORCE=YES
@@ -143,29 +181,6 @@ do
 
     shift
 done
-
-if [ "x$RECOVERY" = "xNO" ]
-then
-    # Outside the recovery environment, we need to check SIP &
-    # authenticated-root (both need to be disabled)
-    if [ "x$FORCE" != "xYES" ]
-    then
-        CSRVAL="`nvram csr-active-config|sed -e 's/^.*	//'`"
-        case $CSRVAL in
-        w%0[89f]* | %[7f]f%0[89f]*)
-            ;;
-        *)
-            echo csr-active-config appears to be set incorrectly:
-            nvram csr-active-config
-            echo
-            echo "To fix this, please boot the setvars EFI utility, then boot back into macOS"
-            echo "and try again. Or if you believe you are seeing this message in error, try the"
-            echo '`--force` command line option.'
-            exit 1
-            ;;
-        esac
-    fi
-fi
 
 # Check if --2010 patch mode was specified on command line without a
 # WiFi option in addition. If so, go ahead and use mojave-hybrid.
@@ -200,28 +215,35 @@ if [ -z "$PATCHMODE" ]
 then
     echo "No patch mode specified on command line. Detecting Mac model..."
     echo "(Use --2010, --2011, or --2012 command line option to override.)"
-    MODEL=`sysctl -n hw.model`
-    echo "Detected model: $MODEL"
+    if [ -z "$MODEL" ]
+    then
+        MODEL=`sysctl -n hw.model`
+        echo "Detected model: $MODEL"
+    else
+        echo "Command line argument model: $MODEL"
+    fi
     case $MODEL in
     # Macs which are incompatible because of pre-Penryn CPUs.
     # This script is highly unlikely to ever execute on these, but I have
     # some uncertainty about how the default case should behave, so I want
     # to catch darn near everything in a non-default case if possible.
     iMac,1|Power*|RackMac*|[0-9][0-9][0-9])
-        echo "Big Sur cannot run on PowerPC Macs."
+        echo "Big Sur cannot run on PowerPC Macs." $MODEL
         exit 1
         ;;
     MacBookPro1,?|MacBook1,1|Macmini1,1)
-        echo "Big Sur cannot run on 32-bit Macs."
+        echo "Big Sur cannot run on 32-bit Macs." $MODEL
         exit 1
         ;;
     MacBook[23],1|Macmini2,1|MacPro[12],1|MacBookAir1,1|MacBookPro[23],?|Xserve1,?)
-        echo "This Mac has a very old Intel Core 2 CPU which cannot run Big Sur."
+        echo "This Mac has a very old Intel Core 2 CPU which cannot run Big Sur." $MODEL
         exit 1
         ;;
     MacBookPro6,?)
-        echo "This Mac has a 1st gen Intel Core CPU which cannot boot Big Sur."
-        exit 1
+        echo "This MacBookPro cannot boot Big Sur without OpenCore." $MODEL
+        echo "You need OpenCore and the khronokernel DSDT patch to boot this machines!"
+        # assuming this selection may fit
+        PATCHMODE=--MBP6
         ;;
     # Macs which are not supported by Apple but supported by this patcher.
     # This currently errs on the side of blindly assuming the Mac will work.
@@ -230,54 +252,63 @@ then
     MacBook[4-7],?|Macmini[34],1|MacBookAir[23],?|MacBookPro[457],?|MacPro3,1)
         # I may need to separate this into different patch modes later,
         # but this will do for now.
-        echo "Detected a 2008-2010 Mac. Using --2010 patch mode."
+        echo "Detected a 2008-2010 Mac. Using --2010 patch mode." $MODEL
         PATCHMODE=--2010
         ;;
     iMac[0-9],?|iMac10,?)
-        echo "Detected a 2006-2009 iMac. Using --2010 patch mode."
+        echo "Detected a 2006-2009 iMac. Using --2010 patch mode." $MODEL
         PATCHMODE=--2010
         ;;
     Macmini5,?|MacBookAir4,?|MacBookPro8,?)
-        echo "Detected a 2011 Mac. Using --2011 patch mode."
+        echo "Detected a 2011 Mac. Using --2011 patch mode." $MODEL
         PATCHMODE=--2011
         ;;
     iMac11,?)
-        echo "Detected a Late 2009 or Mid 2010 11,x iMac. Using special iMac 11,x patch mode."
-        PATCHMODE=--IMAC11
-        INSTALL_IMAC0910="YES"
-        INSTALL_AGC="YES"
-        IMACUSE_OC=YES
+        echo "Detected a Late 2009 or Mid 2010 11,x iMac" $MODEL
+        echo "You need OpenCore and the khronokernel DSDT patch to boot this machines!"
+        # sleep 10
+        PATCHMODE=--2011
+        INSTALL_IMACMETAL="YES"
+        INSTALL_MCCS="NO"
+        INSTALL_APPLEGVA="NO"
         ;;
     iMac12,?)
-        echo "Detected a Mid 2011 12,x iMac. Using --2011 patch mode."
+        echo "Detected a Mid 2011 12,x iMac. Using --2011 patch mode." $MODEL
         PATCHMODE=--2011
-        INSTALL_IMAC2011="YES"
-        INSTALL_AGC="YES"
+        INSTALL_IMACMETAL="YES"
         INSTALL_MCCS="YES"
+        INSTALL_APPLEGVA="NO"
         ;;
     Macmini6,?|MacBookAir5,?|MacBookPro9,?|MacBookPro10,?|iMac13,?)
-        echo "Detected a 2012-2013 Mac. Using --2012 patch mode."
+        echo "Detected a 2012-2013 Mac. Using --2012 patch mode." $MODEL
         PATCHMODE=--2012
+        ;;
+    MacPro3,[1-3])
+        echo "Detected a 2008-2009 Mac Pro. Using --2010 patch mode." $MODEL
+        PATCHMODE=--2010
+        INSTALL_HDMI_AUDIO="YES"
         ;;
     MacPro[45],1)
-        echo "Detected a 2009-2012 Mac Pro. Using --2012 patch mode."
+        echo "Detected a 2009-2012 Mac Pro. Using --2012 patch mode." $MODEL
         PATCHMODE=--2012
+        INSTALL_HDMI_AUDIO="YES"
+        FORCE_PATCH_2012="YES"
         ;;
     iMac14,[123])
-        echo "Detected a Late 2013 iMac. patch-kexts.sh is not necessary on this model."
+        echo "Detected a Late 2013 iMac. patch-kexts.sh is not necessary on this model." $MODEL
         exit 1
         ;;
     # Macs which are supported by Apple and which do not need this patcher.
     # These patterns will potentially match new Mac models which do not
     # exist yet.
     iMac14,4|iMac1[5-9],?|iMac[2-9][0-9],?|iMacPro*|MacPro[6-9],?|Macmini[7-9],?|MacBook[89],1|MacBook[1-9][0-9],?|MacBookAir[6-9],?|MacBookAir[1-9][0-9],?|MacBookPro1[1-9],?)
-        echo "This Mac is supported by Big Sur and does not need this patch."
+        echo "This Mac is supported by Big Sur and does not need this patch." $MODEL
         exit 1
         ;;
     # Default case. Ideally, this code will never execute.
     *)
         echo "Unknown Mac model. This may be a patcher bug, or a recent Mac model which is"
-        echo "already supported by Big Sur and does not need this patch."
+        echo "already supported by Big Sur and does not need this patch." $MODEL
         exit 1
         ;;
     esac
@@ -285,10 +316,15 @@ fi
 
 # Figure out which kexts we're installing.
 case $PATCHMODE in
---IMAC11)
+--MBP6)
     INSTALL_HDA="YES"
     INSTALL_LEGACY_USB="YES"
+    INSTALL_GFTESLA="YES"
+    INSTALL_NVENET="YES"
     INSTALL_BCM5701="YES"
+    INSTALL_NIGHTSHIFT="YES"
+    DISABLE_LIBRARY_VALIDATION="YES"
+    DEACTIVATE_TELEMETRY="YES"
     ;;
 --2010)
     INSTALL_HDA="YES"
@@ -297,6 +333,8 @@ case $PATCHMODE in
     INSTALL_GFTESLA="YES"
     INSTALL_NVENET="YES"
     INSTALL_BCM5701="YES"
+    INSTALL_NIGHTSHIFT="YES"
+    DISABLE_LIBRARY_VALIDATION="YES"
     DEACTIVATE_TELEMETRY="YES"
     ;;
 --2011)
@@ -304,9 +342,11 @@ case $PATCHMODE in
     INSTALL_HD3000="YES"
     INSTALL_LEGACY_USB="YES"
     INSTALL_BCM5701="YES"
+    INSTALL_NIGHTSHIFT="YES"
+    DISABLE_LIBRARY_VALIDATION="YES"
     ;;
 --2012)
-    if [ "x$INSTALL_WIFI" = "xNO" ]
+    if [ "x$INSTALL_WIFI" = "xNO" && "x$FORCE_PATCH_2012" != "xYES" ]
     then
         echo "Attempting --2012 mode without WiFi, which means no patch will be installed."
         echo "Exiting."
@@ -325,6 +365,37 @@ case $PATCHMODE in
     exit 1
     ;;
 esac
+
+#
+# force exit for debugging command line funtionality
+#
+# exit 0
+
+if [ "x$RECOVERY" = "xNO" ]
+then
+    # Outside the recovery environment, we need to check SIP &
+    # authenticated-root (both need to be disabled)
+    if [ "x$FORCE" != "xYES" ]
+    then
+        CSRVAL="`nvram csr-active-config|sed -e 's/^.*    //'| awk '{print $2}'`"
+        #
+        # CSRVAL="`nvram csr-active-config|sed -e 's/^.*    //'`"
+        #
+        case $CSRVAL in
+        w%0[89f]* | %[7f]f%0[89f]*)
+            ;;
+        *)
+            echo csr-active-config appears to be set incorrectly:
+            nvram csr-active-config
+            echo
+            echo "To fix this, please boot the setvars EFI utility, then boot back into macOS"
+            echo "and try again. Or if you believe you are seeing this message in error, try the"
+            echo '`--force` command line option.'
+            exit 1
+            ;;
+        esac
+    fi
+fi
 
 # Now figure out what volume we're installing to.
 VOLUME="$1"
@@ -575,6 +646,20 @@ then
         unzip -q "$IMGVOL/kexts/AppleIntelHD3000GraphicsGLDriver.bundle-17G14033.zip"
         unzip -q "$IMGVOL/kexts/AppleIntelSNBGraphicsFB.kext-17G14033.zip"
         fixPerms AppleIntelHD3000* AppleIntelSNB*
+        
+        #
+        # complete the HD3000 installation for all systems
+        # prepared for feedback of 2011 MacBookPro users.
+        #
+        
+#        echo "Installing highvoltage12v patches for iMac 2011 family"
+#        echo "Using SNB and HD3000 VA bundle files"
+
+#        unzip -q "$IMGVOL/kexts/AppleIntelHD3000GraphicsVADriver.bundle-17G14033.zip"
+#        unzip -q "$IMGVOL/kexts/AppleIntelSNBVA.bundle-17G14033.zip"
+        
+#        fixPerms AppleIntelHD3000GraphicsVADriver.bundle
+#        fixPerms AppleIntelSNBVA.bundle
     fi
 
     if [ "x$INSTALL_LEGACY_USB" = "xYES" ]
@@ -638,6 +723,9 @@ then
         esac
     fi
 
+    #
+    # this is basically the iMac 2011 specific part
+    #
     if [ "x$INSTALL_MCCS" = "xYES" ]
     then
         echo 'Installing Catalina (for iMac 2011) AppleMCCSControl.kext'
@@ -649,129 +737,109 @@ then
         fi
 
         unzip -q "$IMGVOL/kexts/AppleMCCSControl.kext.zip"
-        chown -R 0:0 AppleMCCSControl.kext
-        chmod -R 755 AppleMCCSControl.kext
-    fi
-
-    #
-    # install patches needed by the iMac 2011 family (metal GPU, only)
-    #
-    if [ "x$INSTALL_IMAC2011" = "xYES" ]
-    then
-        # this will any iMac 2011 need
-        # install the iMacFamily extensions
+        
+        fixPerms AppleMCCSControl.kext
+        
         echo "Installing highvoltage12v patches for iMac 2011 family"
         echo "Using SNB and HD3000 VA bundle files"
 
         unzip -q "$IMGVOL/kexts/AppleIntelHD3000GraphicsVADriver.bundle-17G14033.zip"
         unzip -q "$IMGVOL/kexts/AppleIntelSNBVA.bundle-17G14033.zip"
         
-        chown -R 0:0 AppleIntelHD3000* AppleIntelSNB*
-        chmod -R 755 AppleIntelHD3000* AppleIntelSNB*
-
-        # AMD=`/usr/sbin/ioreg -l | grep Baffin`
-        # NVIDIA=`/usr/sbin/ioreg -l | grep NVArch`
-
-        AMD=`chroot "$VOLUME" ioreg -l | grep Baffin`
-        NVIDIA=`chroot "$VOLUME" ioreg -l | grep NVArch`
-    
-        if [ "$AMD" ]
+        fixPerms AppleIntelHD3000GraphicsVADriver.bundle
+        fixPerms AppleIntelSNBVA.bundle
+        
+        if [ "x$INSTALL_NIKEY22" = "xYES" ]
         then
-            echo $CARD "Polaris Card found"
+            echo "Using iMac12,x enabled version of AppleIntelSNBGraphicsFB.kext"
+            INSTALL_BACKLIGHTFIXUP="YES"
+            INSTALL_VIT9696="YES"
+        else
             echo "Using iMacPro1,1 enabled version of AppleIntelSNBGraphicsFB.kext"
             echo "WhateverGreen and Lilu need to be injected by OpenCore"
             rm -rf AppleIntelSNBGraphicsFB.kext
             unzip -q "$IMGVOL/kexts/AppleIntelSNBGraphicsFB-AMD.kext.zip"
             # rename AppleIntelSNBGraphicsFB-AMD.kext
             mv AppleIntelSNBGraphicsFB-AMD.kext AppleIntelSNBGraphicsFB.kext
-            chown -R 0:0 AppleIntelSNBGraphicsFB.kext
-            chmod -R 755 AppleIntelSNBGraphicsFB.kext
-
-        elif [ "$NVIDIA" ]
-        then
-            INSTALL_BACKLIGHT = "YES"
-            # INSTALL_AGC="YES"
-
-            if [ "x$IMACUSE_OC"=="xYES" ]
-            then
-                echo "AppleBacklightFixup, WhateverGreen and Lilu need to be injected by OpenCore"
-            else
-                INSTALL_BACKLIGHTFIXUP="YES"
-                INSTALL_VIT9696="YES"
-            fi
-        else
-            echo "No metal supported video card found in this system!"
-            echo "Big Sur may boot, but will be barely usable due to lack of any graphics acceleration"
+            fixPerms AppleIntelSNBGraphicsFB.kext
         fi
     fi
 
     #
-    # install patches needed by the iMac 2009-2010 family (metal GPU, only)
-    # OC has to be used in any case, assuming injection of
-    # AppleBacklightFixup, FakeSMC, Lilu, WhateverGreen
+    # install patches needed by the iMac Late 2009, Mid 2010 and Mid 2011 family (metal GPU, only)
     #
-    if [ "x$INSTALL_IMAC0910" = "xYES" ]
+    if [ "x$INSTALL_IMACMETAL" = "xYES" ]
     then
-        AMD=`chroot "$VOLUME" ioreg -l | grep Baffin`
-        NVIDIA=`chroot "$VOLUME" ioreg -l | grep NVArch`
-
-        # AMD=`/usr/sbin/ioreg -l | grep Baffin`
-        # NVIDIA=`/usr/sbin/ioreg -l | grep NVArch`
+        # install the iMacFamily Late 2009 to Mid 2011 extensions
+                 
+        DID=`/usr/sbin/chroot "$VOLUME" /usr/sbin/system_profiler SPDisplaysDataType | fgrep "Device ID" | awk '{print $3}'`
     
-        if [ "$AMD" ]
-        then
-            echo $CARD "AMD Polaris Card found"
-        elif [ "$NVIDIA" ]
-        then
+        case $DID in
+            # OpenCore: K610M, K1100M, K2100M
+            0x12b9 | 0x0ff6 | 0x11fc)
+            echo "NVIDIA K610M, K1100M, K2100M found, assume use of OC, device ID: " $DID
             INSTALL_BACKLIGHT="YES"
-            # INSTALL_AGC="YES"
-            echo $CARD "NVIDIA Kepler Card found"
-        else
-            echo "No metal supported video card found in this system!"
-            echo "Big Sur may boot, but will be barely usable due to lack of any graphics acceleration"
-        fi
+            INSTALL_AGC="YES"            ;;
+            # OpenCore; AMD Baffin cards
+            0x67e8 | 0x67e0 | 0x67c0 | 0x67df | 0x67ef)
+            echo "AMD Polaris WX4130/WX4150/WX4170/WX7100/RX480 found, assume use of OC, device ID: " $DID
+            INSTALL_AGC="NO"
+            INSTALL_APPLEGVA="NO"
+            ;;
+            # OpenCore: NVIDIA ++ cards
+            0x1198 | 0x1199 | 0x119a | 0x119f | 0x119e |0x119d |0x11e0 | 0x11e1 | 0x11b8 | 0x11b7 | 0x11b6 | 0x11bc | 0x11bd | 0x11be |0x0ffb | 0x0ffc)
+            echo "NVIDIA Kepler Kx100M, Kx000M, GTX8xx, GTX7xx Card found, assume now use of OC unless --nikey22 has been used, device ID: " $DID
+            INSTALL_BACKLIGHT="YES"
+            INSTALL_AGC="YES"
+            ;;
+            0x6720 | 0x6740 | 0x6741)
+            echo "Original AMD HD 67x0 card found, device ID: " $DID
+            echo "Big Sur and will run without any graphics acceleration"
+            ;;
+            0x68c1 | 0x68d8)
+            echo "Original AMD HD 5xx0 card found, device ID: " $DID
+            echo "Big Sur and will run without any graphics acceleration"
+            ;;
+            0x9488 | 0x944a | 0x944b)
+            echo "Original AMD HD 4xx0 card found, device ID: " $DID
+            echo "Big Sur and will run without any graphics acceleration"
+            ;;
+            0x67??)
+            echo "unknow AMD GPU found, device ID: " $DID
+            echo "Big Sur and will most likely run without any graphics acceleration"
+            ;;
+            *)
+            echo "Unknown GPU model. This may be a patcher bug, device ID: " $DID
+            echo "Big Sur and will likely run without any graphics acceleration"
+            ;;
+        esac
+
     fi
 
+    if [ "x$INSTALL_MYAGC" = "xYES" ]
+    then
+        echo 'Patching for NVIDIA GPU black screen AppleGraphicsDevicePolicy.kext'
+        
+        MYBOARD=`/usr/sbin/ioreg -l | grep board-id | awk -F\" '{ print $4 }' | grep Mac`
+        
+        /usr/libexec/PlistBuddy -c "Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:$MYBOARD string none" AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+        fixPerms AppleGraphicsControl.kext
+    fi
 
     if [ "x$INSTALL_AGC" = "xYES" ]
     then
-        # we need the original file because we do an in place Info.plist patching....
-        if [ -f AppleGraphicsControl.kext.zip ]
-        then
-           rm -rf AppleGraphicsControl.kext
-           unzip -q AppleGraphicsControl.kext.zip
-           rm -rf AppleGraphicsControl.kext.zip
-        else
-           # create a backup using a zip archive on disk
-           # could not figure out how to make a 1:1 copy of an kext folder using cp, ditto and others
-           zip -q -r -X AppleGraphicsControl.kext.zip AppleGraphicsControl.kext
-        fi
+        echo 'Patching (for iMac NVIDIA 2009-2011) AppleGraphicsDevicePolicy.kext'
 
-        echo 'Patching AppleGraphicsControl.kext with iMac 2009-2011 board-id'
+        /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-7BA5B2D9E42DDD94 string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-942B59F58194171B string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-942B5BF58194151B string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2268DAE string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2238AC8 string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         /usr/libexec/PlistBuddy -c 'Add :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2238BAE string none' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
         
-        chown -R 0:0 AppleGraphicsControl.kext
-        chmod -R 755 AppleGraphicsControl.kext
+        fixPerms AppleGraphicsControl.kext
         
-    fi
-
-    if [ "x$INSTALL_AGCOLD" = "xYES" ]
-    then
-        if [ -d AppleGraphicsControl.kext.original ]
-        then
-            rm -rf AppleGraphicsControl.kext
-            mv AppleGraphicsControl.kext.original AppleGraphicsControl.kext
-        else
-            cp -R AppleGraphicsControl.kext AppleGraphicsControl.kext.original
-        fi
-        
-        unzip -q "$IMGVOL/kexts/AppleGraphicsControl.kext.zip"
-        chown -R 0:0 AppleGraphicsControl.kext
-        chmod -R 755 AppleGraphicsControl.kext
     fi
 
     if [ "x$INSTALL_BACKLIGHT" = "xYES" ]
@@ -785,8 +853,7 @@ then
         fi
 
         unzip -q "$IMGVOL/kexts/AppleBacklight.kext.zip"
-        chown -R 0:0 AppleBacklight.kext
-        chmod -R 755 AppleBacklight.kext
+        fixPerms AppleBacklight.kext
     fi
 
     if [ "x$INSTALL_BACKLIGHTFIXUP" = "xYES" ]
@@ -794,8 +861,7 @@ then
         echo 'Installing (for iMac NVIDIA 2009-2011) AppleBacklightFixup.kext'
 
         unzip -q "$IMGVOL/kexts/AppleBacklightFixup.kext.zip"
-        chown -R 0:0 AppleBacklightFixup.kext
-        chmod -R 755 AppleBacklightFixup.kext
+        fixPerms AppleBacklightFixup.kext
     fi
 
     if [ "x$INSTALL_VIT9696" = "xYES" ]
@@ -807,12 +873,190 @@ then
 
         rm -rf Lilu.kext
         unzip -q "$IMGVOL/kexts/Lilu.kext.zip"
+        
+        fixPerms WhateverGreen.kext
+        fixPerms Lilu.kext
+    fi
+    
+    popd > /dev/null
+    
+    #
+    # leaving /System/Library/Extensions with this call of popd
+    #
+    
+    #
+    # MacPro3,x and MacPro5,x HDMI Audio to /Library/Extensions
+    #
+    if [ "x$INSTALL_HDMI_AUDIO" = "xYES" ]
+    then
+        pushd "$VOLUME/Library/Extensions" > /dev/null
+
+        echo 'Installing (for MacPro3,x and MacPro5,x)  HDMIAudio.kext'
+
+        rm -rf HDMIAudio.kext
+        unzip -q "$IMGVOL/kexts/HDMIAudio.kext.zip"
+        
+        fixPerms HDMIAudio.kext
+        popd > /dev/null
+    fi
+    
+    #
+    # extended whitelist patching for BCM94331CD (this is no 802.11ac card)
+    # Mac-00BE6ED71E35EB86 is the iMac13,1 possibly one should use an ID of a still supported system!
+    #
+    if [ "x$INSTALL_WHITELIST" = "xYES" ]
+    then
+        pushd "$VOLUME/System/Library/Frameworks" > /dev/null
+        
+        # getting board-id of the system
+        MYBOARD=`/usr/sbin/ioreg -l | grep board-id | awk -F\" '{ print $4 }' | grep Mac`
+
+        # check if there exist a ContinuitySupport entry for this particular system
+        RESULT=`/usr/libexec/PlistBuddy -c "Print:$MYBOARD:ContinuitySupport" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"`
+
+        if [ "x$RESULT" = "xfalse" ]
+        then
+            echo 'patching IOBluetooth.framework for Continuity and HandOff for board-id ' $MYBOARD
+            
+            /usr/libexec/PlistBuddy -c "Set:$MYBOARD:ContinuitySupport true" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"
+            # read again and check
+            RESULT=`/usr/libexec/PlistBuddy -c "Print:$MYBOARD:ContinuitySupport" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"`
+            
+            echo 'Continuity for ' $MYBOARD 'set to: ' $RESULT
+        else
+            echo 'your system with board-id' $MYBOARD 'has no black list entry'
+            echo 'and will possibly support Continuity and HandOff out of the box.'
+        fi
+        fixPerms IOBluetooth.framework
+
+        popd > /dev/null
+        
+        pushd "$VOLUME/System/Library/Extensions" > /dev/null
  
-        chown -R 0:0 WhateverGreen* Lilu*
-        chmod -R 755 WhateverGreen* Lilu*
+        if [ "x$RESULT" = "xfalse" ]
+        then
+            pushd "$VOLUME/System/Library/Extensions" > /dev/null
+
+            echo 'patching IO80211Family.kext for Continuity and HandOff for board-id ' $MYBOARD
+            #
+            # this is currently not reversed by patch-kext.sh -u
+            #
+
+            /usr/bin/perl -pi -e "s/\Mac-00BE6ED71E35EB86/$MYBOARD/" IO80211Family.kext/Contents/PlugIns/AirPortBrcm4360.kext/Contents/MacOS/AirPortBrcm4360
+            /usr/bin/perl -pi -e "s/\Mac-00BE6ED71E35EB86/$MYBOARD/" IO80211Family.kext/Contents/PlugIns/AirPortBrcmNIC.kext/Contents/MacOS/AirPortBrcmNIC
+        
+            fixPerms IO80211Family.kext
+            popd > /dev/null
+
+        fi
+    fi
+    
+    if [ "x$INSTALL_WIFI" = "xNO" ]
+    then
+        pushd "$VOLUME/System/Library/Frameworks" > /dev/null
+        
+        # getting board-id of the system
+        MYBOARD=`/usr/sbin/ioreg -l | grep board-id | awk -F\" '{ print $4 }' | grep Mac`
+
+        # check if there exist a ContinuitySupport entry for this particular system
+        RESULT=`/usr/libexec/PlistBuddy -c "Print:$MYBOARD:ContinuitySupport" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"`
+
+        if [ "x$RESULT" = "xfalse" ]
+        then
+            echo 'patching IOBluetooth.framework for Continuity and HandOff for board-id ' $MYBOARD
+            
+            /usr/libexec/PlistBuddy -c "Set:$MYBOARD:ContinuitySupport true" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"
+            # read again and check
+            RESULT=`/usr/libexec/PlistBuddy -c "Print:$MYBOARD:ContinuitySupport" "IOBluetooth.framework/Versions/A/Resources/SystemParameters.plist"`
+            
+            echo 'Continuity for ' $MYBOARD 'set to: ' $RESULT
+        else
+            echo 'your system with board-id' $MYBOARD 'has no black list entry'
+            echo 'and will possibly support Continuity and HandOff out of the box.'
+        fi
+        fixPerms IOBluetooth.framework
+
+        popd > /dev/null
     fi
 
-    popd > /dev/null
+    if [ "x$DISABLE_LIBRARY_VALIDATION" = "xYES" ]
+    then
+       echo 'Disable Library Validation'
+        
+        # defaults write /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation -bool true
+        pushd "$VOLUME/Library/Preferences" > /dev/null
+
+        # not clear if there will be such file in place
+        if [ -f com.apple.security.libraryvalidation.plist.original ]
+        then
+            rm com.apple.security.libraryvalidation.plist
+        elif [ -f com.apple.security.libraryvalidation.plist ]
+        then
+            mv com.apple.security.libraryvalidation.plist com.apple.security.libraryvalidation.plist.original
+        fi
+            
+        exzip "$IMGVOL/Preferences/com.apple.security.libraryvalidation.plist.zip"
+        
+        popd > /dev/null
+    fi
+    
+    if [ "x$ENABLE_SAVE_BOOT" = "xYES" ]
+    then
+       echo 'Enable Save Boot for iMac 2009-2011 and 2012/2013 Macs'
+        
+        pushd "$VOLUME/System/Library/CoreServices" > /dev/null
+
+        if [ -f PlatformSupport.plist.original ]
+        then
+            rm PlatformSupport.plist
+        elif [ -f PlatformSupport.plist ]
+        then
+            mv PlatformSupport.plist PlatformSupport.plist.original
+        fi
+            
+        exzip "$IMGVOL/Preferences/PlatformSupport.plist.zip"
+        
+        popd > /dev/null
+    fi
+    
+    if [ "x$INSTALL_NIGHTSHIFT" = "xYES" ]
+    then
+        echo 'Installing patched CoreBrightness.framework for Night Shift'
+
+        pushd "$VOLUME/System/Library/PrivateFrameworks" > /dev/null
+        
+        if [ -d CoreBrightness.framework.original ]
+        then
+            rm -rf CoreBrightness.framework
+        else
+            mv CoreBrightness.framework CoreBrightness.framework.original
+        fi
+                
+        exzip "$IMGVOL/PrivateFrameworks/CoreBrightness.framework.zip"
+
+        fixPerms CoreBrightness.framework
+        
+        popd > /dev/null
+    fi
+
+    if [ "x$INSTALL_APPLEGVA" = "xYES" ]
+    then
+        echo 'Installing patched AppleGVA.framework for iGPU support in Sandy Bridge Systems'
+        pushd "$VOLUME/System/Library/PrivateFrameworks" > /dev/null
+        
+        if [ -d AppleGVA.framework.original ]
+        then
+            rm -rf AppleGVA.framework
+        else
+            mv AppleGVA.framework AppleGVA.framework.original
+        fi
+
+        unzip -q "$IMGVOL/kexts/AppleGVA.framework.zip"
+
+        fixPerms AppleGVA.framework
+                
+        popd > /dev/null
+    fi
 
     if [ "x$DEACTIVATE_TELEMETRY" = "xYES" ]
     then
@@ -901,15 +1145,27 @@ else
     restoreOriginals
     popd > /dev/null
 
-    # And remove kexts which did not overwrite newer versions.
-    if [ -f AppleGraphicsControl.kext.zip ]
-    then
-        echo 'Restoring patched AppleGraphicsControl extension'
-        rm -rf AppleGraphicsControl.kext
-        unzip -q AppleGraphicsControl.kext.zip
-        rm AppleGraphicsControl.kext.zip
-    fi
-    rm -rf AppleGraphicsControl.kext
+    # iMac specific additions. If these changes do not exist the commands below
+    #  will not change the AppleGraphicsControl at all
+    
+    MYBOARD=`/usr/sbin/ioreg -l | grep board-id | awk -F\" '{ print $4 }' | grep Mac`
+        
+    /usr/libexec/PlistBuddy -c "Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:$MYBOARD string none" AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+    
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-7BA5B2D9E42DDD94' AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-942B59F58194171B' ./AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-942B5BF58194151B' ./AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2268DAE' ./AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2238AC8' ./AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+
+    /usr/libexec/PlistBuddy -c 'Delete :IOKitPersonalities:AppleGraphicsDevicePolicy:ConfigMap:Mac-F2238BAE' ./AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/Info.plist
+   
+    fixPerms AppleGraphicsControl.kext
+
     echo 'Removing kexts for Intel HD 3000 graphics support'
     rm -rf AppleIntelHD3000* AppleIntelSNB*
     echo 'Removing LegacyUSBInjector'
@@ -925,6 +1181,16 @@ else
     echo 'Reactivating telemetry plugin'
     mv -f "$VOLUME/System/Library/UserEventPlugins/com.apple.telemetry.plugin.disabled" "$VOLUME/System/Library/UserEventPlugins/com.apple.telemetry.plugin"
 
+    popd > /dev/null
+
+    # CoreBrightness.framework and possibly AppleGVA.framework
+    pushd "$VOLUME/System/Library/PrivateFrameworks" > /dev/null
+    restoreOriginals
+    popd > /dev/null
+    
+    # /Library/Preferences
+    pushd "$VOLUME/Library/Preferences" > /dev/null
+    restoreOriginals
     popd > /dev/null
 
     # Also, remove kmutil.old (if it exists, it was installed by patch-kexts.sh)
