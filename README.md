@@ -21,6 +21,7 @@
 10) At the Utilities menu, select `Post-Install Automator`
 11) Follow the instructions in the app to apply post-install patches for your Mac to work properly. 
 12) When complete, a dialog will appear. Press the `Restart` button to restart to complete your installation.
+13) If things do not work as intendet try a [PRAM or NVRAM](https://support.apple.com/HT204063) reset.
 
 ## Credits:
 None of this would be possible without BarryKN, who has been working hard at developing (and constantly updating) his micropatcher. Also, special thanks to MinhTon, BenSova, ASentientBot, jackluke, and MacHacJac for their help in developing this automator.
