@@ -1,6 +1,6 @@
 <img align="right" width=20% src="https://github.com/moosethegoose2213/automator-for-barrykn-micropatcher/raw/main/MicropatcherAutomator/MicropatcherAutomator/Assets.xcassets/AppIcon.appiconset/512.png">
 
-# MicropatcherAutomator
+# MicropatcherAutomator (iMac 2009-2011 Edition)
 
 <img src="https://user-images.githubusercontent.com/37860569/103453837-a7810c80-4d10-11eb-82e9-31e1b026482e.png">
 
@@ -22,6 +22,9 @@
 11) Follow the instructions in the app to apply post-install patches for your Mac to work properly. 
 12) When complete, a dialog will appear. Press the `Restart` button to restart to complete your installation.
 13) If things do not work as intendet try a [PRAM or NVRAM](https://support.apple.com/HT204063) reset.
+
+## Notes:
+Using this tool on iMac Late 2009, Mid 2010, Mid 2011 or MacBookPro6,x models adds a working OpenCore installation to the EFI partition of the USB installer medium. You have to use exactly this OpenCore version to boot into the installer and later into the Big Sur installation. When starting your computer press alt/option select the EFI Boot partition. You will get another OpenCore GUI Boot selection. Select your Big Sur installation disc!
 
 ## Credits:
 None of this would be possible without BarryKN, who has been working hard at developing (and constantly updating) his micropatcher. Also, special thanks to MinhTon, BenSova, ASentientBot, jackluke, and MacHacJac for their help in developing this automator.
