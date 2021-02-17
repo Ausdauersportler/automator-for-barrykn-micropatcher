@@ -15,7 +15,7 @@
 4) Follow instructions in the application on how to create a bootable Big Sur USB for your unsupported Mac.
 5) When the process completes, press the Restart button to restart your Mac.
 6) Hold the `Option` key immediately after powering on your Mac, and select `EFI Boot`.
-7) In case the Mac stopped restart your Mac, then hold the `Option` key immediately, and select `Install macOS Big Sur`. Otherwise just select `Install macOS Big Sur`.
+7) In case the Mac stopped restart your Mac, then hold the `Option` key immediately, and select `Install macOS Big Sur`. Otherwise just select `Install macOS Big Sur`. You have got an OpenCore installation on your `EFI Boot`, see Notes below. 
 8) Follow the instructions displayed on the screen to install macOS Big Sur.
 9) After installing macOS Big Sur, boot back to the USB. 
 10) At the Utilities menu, select `Post-Install Automator`
